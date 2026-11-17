@@ -40,3 +40,6 @@ docs/backend-audit-build.log
 
 # Local database backups
 backups/
+
+# Local wiki notes
+/wiki/
