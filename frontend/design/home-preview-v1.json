@@ -1,0 +1,41 @@
+{
+  "status": "local_life_refresh_implemented",
+  "image": "home-preview-v1.png",
+  "generation_mode": "built-in image_gen",
+  "product": "本地生活",
+  "city": "利物浦",
+  "mode": "redesign-overhaul",
+  "audience": "寻找商家、优惠券和探店内容的本地生活用户",
+  "visual_language": "深海军蓝、青绿与琥珀色组成的现代城市指南界面",
+  "palette": {
+    "background": "#EEF4F3",
+    "surface": "#FFFFFF",
+    "text": "#102F3A",
+    "primary": "#0F766E",
+    "accent": "#F5B83D"
+  },
+  "typography": "清晰的中文无衬线字体，标题加粗，正文保持易读",
+  "spacing_base_px": 8,
+  "card_radius_px": 16,
+  "banner_radius_px": 24,
+  "dials": {
+    "visual_variance": 5,
+    "motion_intensity": 2,
+    "information_density": 6,
+    "asset_dependence": 8,
+    "brand_fidelity": 6
+  },
+  "desktop": "顶部导航与搜索、紧凑城市横幅、十类入口、三列探店卡片、附近商家与优惠券侧栏",
+  "mobile": "响应式单列布局，保留分类、店铺、优惠券与发布流程",
+  "implementation_constraints": [
+    "实现仅位于点评目录，新版前端保存在 hm-dianping/frontend",
+    "桌面、平板和手机使用响应式布局",
+    "沿用现有后端接口、鉴权、数据与订单逻辑，不写入设计示例数据",
+    "保留原课程前端，可通过 HMDP_FRONTEND_DIR 切换",
+    "不修改 CityLens 项目"
+  ],
+  "prompt_summary": "将利物浦本地生活平台改造成现代城市指南：深海军蓝导航、青绿色主色、琥珀色强调、全幅城市影像、异形圆角卡片与响应式布局。中文界面保持清晰，沿用现有业务与接口。",
+  "preview_scope": "本地生活品牌改版，覆盖桌面、平板和手机布局",
+  "implemented_scope": "responsive",
+  "entry_url": "http://127.0.0.1:8080/"
+}
