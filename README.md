@@ -20,7 +20,6 @@
 | 探店笔记 | 初始为空，由用户后续发布 |
 | 优惠券 | 保留 1 张演示券 |
 | 业务消息队列 | RabbitMQ |
-| 行为分析 | Kafka，可按环境启用 |
 
 ### 店铺分类覆盖
 
@@ -30,6 +29,16 @@
 - `type_id=10` 对应“美睫·美甲”。
 
 未知的均价、销量、评论数、评分、营业时间和图片字段保留为 `NULL`，不会用 `0` 冒充真实数据。相同地址或相同演示坐标属于允许的数据情况。
+
+## 页面预览
+
+### 登录页面
+
+![本地生活登录页面](picture/登陆页面.png)
+
+### 店铺内容示例
+
+![本地生活店铺内容示例](picture/内容示例.png)
 
 ## 主要功能
 
@@ -43,10 +52,9 @@
 | 探店社区 | 发布笔记、图片上传、点赞、关注和关注动态 |
 | 优惠券 | 普通券、演示订单、订单快照和本人订单 |
 | 秒杀演示 | Redis Lua 预占、异步履约、幂等和补偿 |
-| 缓存 | 请求缓存、Caffeine、Memcached、Redis 与 MySQL 多层查询 |
+| 缓存 | 请求缓存、Caffeine、Redis 与 MySQL 多层查询 |
 | 数据同步 | Canal 监听店铺和优惠券变更并清理缓存 |
 | 可靠消息 | RabbitMQ 承载 Outbox 后的异步业务任务 |
-| 行为分析 | Kafka 记录浏览事件并生成店铺热度数据 |
 
 ## 系统架构
 
@@ -56,19 +64,15 @@ flowchart LR
     Nginx -->|/api| Java[Spring Boot :8081]
     Java --> MySQL[(MySQL)]
     Java --> Redis[(Redis)]
-    Java --> Memcache[(Memcached)]
     MySQL -->|binlog| Canal[Canal]
     Canal --> Java
     MySQL --> Outbox[Business Outbox]
     Outbox --> RabbitMQ[RabbitMQ]
     RabbitMQ --> Worker[异步投影与履约]
     Worker --> MySQL
-    Java --> Kafka[Kafka 行为事件]
-    Kafka --> Analytics[热度聚合]
-    Analytics --> MySQL
 ```
 
-RabbitMQ 是当前业务消息队列。它负责可靠业务消息、Feed 投影、缓存失效、订单履约和延迟关单等异步任务。Kafka 仅用于行为事件与热度分析，不替代 RabbitMQ。
+RabbitMQ 是当前业务消息队列。它负责可靠业务消息、Feed 投影、缓存失效、订单履约和延迟关单等异步任务。
 
 仓库中仍保留 RocketMQ 兼容实现和开发服务，方便后续对比或回归；默认应用 provider 已设置为 `rabbitmq`，当前场景不使用 RocketMQ 处理业务消息。
 
@@ -78,9 +82,8 @@ RabbitMQ 是当前业务消息队列。它负责可靠业务消息、Feed 投影
 | --- | --- |
 | 后端 | Java 8、Spring Boot 2.3.12、MyBatis-Plus 3.4.3 |
 | 数据库 | MySQL 8、Flyway |
-| 缓存与协调 | Redis 7、Redisson、Caffeine、Memcached |
+| 缓存与协调 | Redis 7、Redisson、Caffeine |
 | 业务消息 | RabbitMQ 4.4、事务 Outbox、Inbox 去重 |
-| 行为分析 | Kafka 3.9.1 |
 | 数据同步 | Canal 1.1.8 |
 | 前端 | Vue 2、原生 HTML/CSS/JavaScript、Nginx |
 | 监控 | Spring Boot Actuator、Micrometer、Prometheus、Alertmanager |
@@ -239,7 +242,7 @@ hm-dianping/
 │   ├── entity/、dto/     实体与传输对象
 │   ├── cache/            多层缓存与 Canal 消费
 │   ├── messaging/        RabbitMQ、Outbox 与消息幂等
-│   ├── analytics/        Kafka 行为分析
+│   ├── analytics/        行为事件与热度聚合
 │   └── reliability/      限流、审计与故障恢复
 ├── src/main/resources/
 │   ├── db/hmdp.sql       基础数据库初始化
@@ -249,7 +252,7 @@ hm-dianping/
 ├── frontend/             本地生活前端页面
 ├── uk_data/              利物浦店铺主数据
 ├── scripts/migration/    数据切换、生成、校验和缓存脚本
-├── dev/                  本地 Compose、RabbitMQ、Kafka 与监控配置
+├── dev/                  本地 Compose、RabbitMQ 与监控配置
 ├── deploy/               轻量部署配置
 ├── docs/                 验证记录
 └── wiki/                 原有技术专题说明
@@ -292,7 +295,6 @@ npm --prefix frontend test
 | `HMDP_MQ_PROVIDER` | `rabbitmq` | 当前业务 MQ provider |
 | `HMDP_RABBITMQ_USER` | `hmdp` | RabbitMQ 用户名 |
 | `HMDP_RABBITMQ_PASSWORD` | `hmdp_local_only` | RabbitMQ 密码 |
-| `HMDP_ANALYTICS_ENABLED` | `true` | 启用 Kafka 行为分析 |
 | `HMDP_EXPERIENCE_ENABLED` | `true` | 启用体验观察接口 |
 | `HMDP_ADMIN_IDS` | 空 | 管理员用户 ID 白名单 |
 | `HMDP_PAYMENT_MOCK_ENABLED` | `false` | 本地模拟付款 |
@@ -316,4 +318,4 @@ docker compose -p hm-dianping -f dev/docker-compose.yml down
 - 验证码尚未接入真实短信。
 - 优惠券、秒杀和付款为演示业务，不具备完整核销、退款和真实支付闭环。
 - 初始探店笔记为空，需要用户登录后自行发布。
-- `deploy/` 中的轻量部署配置默认关闭 RabbitMQ、Kafka 和 Canal；它用于低资源演示，不代表完整生产架构。完整业务环境应启用 RabbitMQ 并重新评估资源、备份、HTTPS 和监控策略。
+- `deploy/` 中的轻量部署配置默认关闭 RabbitMQ 和 Canal；它用于低资源演示，不代表完整生产架构。完整业务环境应启用 RabbitMQ 并重新评估资源、备份、HTTPS 和监控策略。
