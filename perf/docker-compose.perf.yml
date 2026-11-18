@@ -18,7 +18,7 @@ services:
       SPRING_REDIS_PORT: '6379'
       SPRING_REDIS_PASSWORD: ''
       HMDP_CACHE_ENABLED: ${HMDP_PERF_CACHE_ENABLED:-true}
-      HMDP_MEMCACHE_ENABLED: ${HMDP_PERF_MEMCACHE_ENABLED:-true}
+      HMDP_MEMCACHE_ENABLED: 'false'
       HMDP_MEMCACHE_HOST: memcached
       HMDP_MEMCACHE_TIMEOUT_MS: '100'
       HMDP_CDC_ENABLED: 'false'
@@ -46,8 +46,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      memcached:
-        condition: service_started
       rabbitmq:
         condition: service_healthy
 volumes:

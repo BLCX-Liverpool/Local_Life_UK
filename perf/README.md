@@ -64,7 +64,7 @@ perf/scripts/install-jmeter.sh
 perf/scripts/start-stack.sh
 ```
 
-默认入口为 `http://127.0.0.1:18081`。隔离环境启用 MySQL、Redis、Memcached、RabbitMQ 和 Java API；Kafka、RocketMQ、Canal 和行为分析不参与本轮测试。
+默认入口为 `http://127.0.0.1:18081`。隔离环境启用 MySQL、Redis、RabbitMQ 和 Java API；Memcached明确停用且不启动，Kafka、RocketMQ、Canal和行为分析不参与本轮测试。
 
 ## 低档冒烟
 
@@ -96,37 +96,43 @@ perf/scripts/run-seckill-tier.sh L1
 
 状态查询不混入主发压流量。JMeter 完成后，脚本最多等待 5 分钟，直到 Redis Stream、Outbox 和 RabbitMQ 排空，再执行库存与订单对账。
 
-## 缓存 A/B/C
+## 缓存 A/B分档
 
-三个模式分别是：
+两个模式分别是：
 
 - A：业务缓存关闭，直接回源 MySQL。
 - B：Caffeine + Redis，Memcached 关闭。
-- C：Caffeine + Memcached + Redis，当前拓扑。
 
-默认每阶段预热 30 秒、以 500 RPS 正式运行 180 秒；顺序为 `ABC/CBA/ABC/CBA/ABC`，每个模式五轮，最终比较中位数：
+两组都保留Redis服务，因为登录和项目基础功能依赖Redis；A组只是让店铺详情绕过业务缓存。缓存档位为C1/C2/C3/C4/C5，分别对应100/200/500/800/1000 RPS。每轮预热30秒、正式运行60秒，每档按`AB/BA/AB/BA/AB`执行，A、B各五轮并比较中位数。
+
+运行全部缓存档位：
 
 ```bash
 export HMDP_PERF_CONFIRM_FORMAL_RUN=yes
-perf/scripts/run-cache-ab.sh
+perf/scripts/run-cache-ab.sh ALL
 ```
 
-只有 B 模式功能正确、零超时/5xx，且 P95 相比 C 回退不超过 10%，才会输出“可以进入 Memcached 移除评审”。测试不会自动修改 Compose 或删除 Memcached。
+也可以先单独验证某一档：
+
+```bash
+perf/scripts/run-cache-ab.sh C1
+```
+
+结果同时给出各档P50/P95/P99降低比例、MySQL回源降低比例，以及满足目标RPS、P95不超过200ms、P99不超过500ms、零超时、零5xx和零业务失败时的最高通过RPS。容量提升按`B组最高通过RPS/A组最高通过RPS-1`计算；如果B组通过最高测试档，只能表述为“至少达到1000 RPS”。
 
 ## 全套执行
 
-全套包含约 50 分钟的缓存 A/B/C，以及所有秒杀档位。应在独立压测机和正式压测服务器上执行：
+全套包含约75分钟的缓存A/B分档（另加容器重启时间），以及所有秒杀档位：
 
 ```bash
 export HMDP_PERF_CONFIRM_FORMAL_RUN=yes
 perf/scripts/run-formal-suite.sh
 ```
 
-可通过以下变量调整缓存测试，但正式报告必须记录实际值：
+可通过以下变量调整预热和正式阶段时长，但正式报告必须记录实际值：
 
 ```bash
-export HMDP_PERF_CACHE_RPS=500
-export HMDP_PERF_CACHE_DURATION_SECONDS=180
+export HMDP_PERF_CACHE_DURATION_SECONDS=60
 export HMDP_PERF_CACHE_WARMUP_SECONDS=30
 ```
 
@@ -139,6 +145,15 @@ export HMDP_PERF_CACHE_WARMUP_SECONDS=30
 - `http-summary.json`：吞吐、P50/P95/P99、超时、429和业务结果。
 - `final-state.json`：库存、订单、预约、Stream、Outbox、RabbitMQ和死信。
 - `verification.json`：统一验收结论与失败原因。
+
+每个缓存轮次目录还包含：
+
+- `metrics-before.prom`、`metrics-after.prom`：正式阶段前后的原始指标快照。
+- `cache-metrics.json`：Caffeine命中、Redis命中和MySQL回源增量。
+- `latency-by-second.csv`：逐秒请求数与延迟。
+- `metadata.json`：档位、A/B模式、轮次、RPS和时长。
+
+缓存A/B根目录的`verification.json`汇总五轮中位数、各档延迟降低比例和容量提升。
 
 主验收条件：
 
@@ -153,7 +168,7 @@ RabbitMQ ready/unacked = 0
 一人多单违规 = 0
 ```
 
-正式档要求请求到达RPS保持在目标值的95%～105%、P95不超过200ms、P99不超过500ms、零超时和零非预期5xx。报告另列完成吞吐；短测试的末尾响应时间不混入发压速率判定。到达RPS超出105%说明发压模型形成突发，结果不能作为目标RPS下的容量结论。L4B与LIMIT允许受控429，但仍需通过全部业务对账。
+正式档要求请求到达RPS保持在目标值的95%～105%、P95不超过200ms、P99不超过500ms、零超时和零非预期5xx。到达RPS按计划窗口计算；若实际到达跨度超过计划窗口，则改用更长的实际跨度，避免把Poisson到达在窗口首尾的自然空白误判为超额吞吐。报告另列活跃到达窗口RPS和完成吞吐。L4B与LIMIT允许受控429，但仍需通过全部业务对账。
 
 ## 停止
 

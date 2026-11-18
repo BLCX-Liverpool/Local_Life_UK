@@ -7,9 +7,9 @@ source "${SCRIPT_DIR}/common.sh"
 require_docker
 
 export HMDP_PERF_CACHE_ENABLED=${HMDP_PERF_CACHE_ENABLED:-true}
-export HMDP_PERF_MEMCACHE_ENABLED=${HMDP_PERF_MEMCACHE_ENABLED:-true}
 
-perf_compose up -d mysql redis memcached rabbitmq api
+perf_compose stop memcached >/dev/null 2>&1 || true
+perf_compose up -d mysql redis rabbitmq api
 wait_for_api
 echo "Performance stack is healthy at ${PERF_API_BASE}"
 

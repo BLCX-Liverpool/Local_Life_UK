@@ -70,6 +70,14 @@ metric_value() {
   printf '%s\n' "${value:-0}"
 }
 
+fetch_metrics() {
+  local output=$1
+  curl -fsS \
+    -H 'Authorization: Bearer hmdp_perf_metrics' \
+    "${PERF_API_BASE}/actuator/prometheus" \
+    -o "${output}"
+}
+
 ensure_dir() {
   mkdir -p "$1"
 }

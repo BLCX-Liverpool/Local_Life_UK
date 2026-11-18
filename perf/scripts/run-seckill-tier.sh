@@ -59,7 +59,9 @@ fi
 python3 "${SCRIPT_DIR}/analyze_jtl.py" \
   "${result_dir}/results.jtl" \
   "${result_dir}/http-summary.json" \
-  --target-rps "${RPS}"
+  --target-rps "${RPS}" \
+  --planned-duration-seconds "${schedule_seconds}" \
+  --buckets-output "${result_dir}/latency-by-second.csv"
 
 "${SCRIPT_DIR}/wait-for-drain.sh" "${result_dir}/final-state.json" 300
 

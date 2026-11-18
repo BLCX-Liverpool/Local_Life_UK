@@ -24,6 +24,8 @@ def main():
     parser.add_argument("jtl", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--target-rps", type=float, required=True)
+    parser.add_argument("--planned-duration-seconds", type=float)
+    parser.add_argument("--buckets-output", type=Path)
     parser.add_argument("--mode", choices=("seckill", "cache"), default="seckill")
     args = parser.parse_args()
 
@@ -77,19 +79,43 @@ def main():
             other_business_failures += 1
 
     duplicate_requests = sum(max(0, count - 1) for count in successful_rows_by_user.values())
-    achieved_rps = (
+    observed_active_window_rps = (
         (len(rows) - 1) / arrival_span_seconds
         if len(rows) > 1
         else len(rows) / completion_span_seconds
     )
-    completed_rps = len(rows) / completion_span_seconds
+    if args.planned_duration_seconds is not None:
+        planned_duration_seconds = max(0.001, args.planned_duration_seconds)
+        # A Poisson schedule normally leaves an idle gap before its first and
+        # after its last arrival. Do not mistake that shorter active span for
+        # throughput above the configured rate. If arrivals run late, retain
+        # the longer observed span so generator saturation is still visible.
+        load_window_seconds = max(planned_duration_seconds, arrival_span_seconds)
+        achieved_rps = len(rows) / load_window_seconds
+        completion_window_seconds = max(planned_duration_seconds, completion_span_seconds)
+    else:
+        planned_duration_seconds = None
+        load_window_seconds = arrival_span_seconds
+        achieved_rps = observed_active_window_rps
+        completion_window_seconds = completion_span_seconds
+    observed_active_window_completed_rps = len(rows) / completion_span_seconds
+    completed_rps = len(rows) / completion_window_seconds
     summary = {
         "samples": len(rows),
         "duration_seconds": round(completion_span_seconds, 3),
         "arrival_span_seconds": round(arrival_span_seconds, 3),
+        "planned_duration_seconds": (
+            round(planned_duration_seconds, 3)
+            if planned_duration_seconds is not None
+            else None
+        ),
+        "load_window_seconds": round(load_window_seconds, 3),
+        "completion_window_seconds": round(completion_window_seconds, 3),
         "target_rps": args.target_rps,
         "achieved_rps": round(achieved_rps, 3),
+        "observed_active_window_rps": round(observed_active_window_rps, 3),
         "completed_rps": round(completed_rps, 3),
+        "observed_active_window_completed_rps": round(observed_active_window_completed_rps, 3),
         "target_achievement_ratio": round(achieved_rps / args.target_rps, 4),
         "p50_ms": percentile(elapsed, 0.50),
         "p95_ms": percentile(elapsed, 0.95),
@@ -109,6 +135,25 @@ def main():
             "duplicate_requests": duplicate_requests,
             "rate_limited": rate_limited,
         })
+    if args.buckets_output:
+        first_timestamp = min(timestamps)
+        buckets = {}
+        for timestamp, latency in zip(timestamps, elapsed):
+            second = (timestamp - first_timestamp) // 1000
+            buckets.setdefault(second, []).append(latency)
+        args.buckets_output.parent.mkdir(parents=True, exist_ok=True)
+        with args.buckets_output.open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.writer(stream)
+            writer.writerow(("second", "samples", "p50_ms", "p95_ms", "max_ms", "slow_ge_500ms"))
+            for second, latencies in sorted(buckets.items()):
+                writer.writerow((
+                    second,
+                    len(latencies),
+                    percentile(latencies, 0.50),
+                    percentile(latencies, 0.95),
+                    max(latencies),
+                    sum(latency >= 500 for latency in latencies),
+                ))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))

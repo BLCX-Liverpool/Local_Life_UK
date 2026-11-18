@@ -19,7 +19,7 @@
           <intProp name="LoopController.loops">-1</intProp>
         </elementProp>
         <stringProp name="ThreadGroup.num_threads">${__P(threads,200)}</stringProp>
-        <stringProp name="ThreadGroup.ramp_time">${__P(ramp_seconds,5)}</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">0</stringProp>
         <boolProp name="ThreadGroup.delayedStart">false</boolProp>
         <boolProp name="ThreadGroup.scheduler">true</boolProp>
         <stringProp name="ThreadGroup.duration">${__P(duration_seconds,180)}</stringProp>
@@ -46,11 +46,23 @@
           <stringProp name="cacheKey">true</stringProp>
           <stringProp name="filename"/>
           <stringProp name="parameters"/>
-          <stringProp name="script">import java.util.concurrent.ThreadLocalRandom
-def random = ThreadLocalRandom.current()
+          <stringProp name="script">import java.util.concurrent.atomic.AtomicLong
+def counter = props.get('cache_sequence_counter')
+if (!(counter instanceof AtomicLong)) {
+    synchronized (props) {
+        counter = props.get('cache_sequence_counter')
+        if (!(counter instanceof AtomicLong)) {
+            counter = new AtomicLong()
+            props.put('cache_sequence_counter', counter)
+        }
+    }
+}
+long sequence = counter.getAndIncrement()
 def hot = props.getProperty('hot_shop_id', '1')
 def max = Integer.parseInt(props.getProperty('max_shop_id', '14'))
-vars.put('shop_id', random.nextInt(100) &lt; 80 ? hot : String.valueOf(1 + random.nextInt(max)))</stringProp>
+long slot = sequence % 10
+long distributed = Math.floorDiv(sequence, 10L) * 2L + Math.max(0L, slot - 8L)
+vars.put('shop_id', slot &lt; 8 ? hot : String.valueOf(1 + Math.floorMod(distributed, max)))</stringProp>
           <stringProp name="scriptLanguage">groovy</stringProp>
         </JSR223PreProcessor>
         <hashTree/>

@@ -24,7 +24,8 @@ fi
 require_docker
 
 # Start once so Flyway has created the complete schema, then stop the API before resetting Redis.
-perf_compose up -d mysql redis memcached rabbitmq api
+perf_compose stop memcached >/dev/null 2>&1 || true
+perf_compose up -d mysql redis rabbitmq api
 wait_for_api
 perf_compose stop api
 
