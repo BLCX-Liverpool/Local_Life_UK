@@ -103,7 +103,7 @@ perf/scripts/run-seckill-tier.sh L1
 - A：业务缓存关闭，直接回源 MySQL。
 - B：Caffeine + Redis，Memcached 关闭。
 
-两组都保留Redis服务，因为登录和项目基础功能依赖Redis；A组只是让店铺详情绕过业务缓存。缓存档位为C1/C2/C3/C4/C5，分别对应100/200/500/800/1000 RPS。每轮预热30秒、正式运行60秒，每档按`AB/BA/AB/BA/AB`执行，A、B各五轮并比较中位数。
+两组都保留Redis服务，因为登录和项目基础功能依赖Redis；A组只是让店铺详情绕过业务缓存。缓存档位为C1/C2/C3/C4/C5，分别对应100/200/500/800/1000 RPS。每轮在同一个JMeter进程内预热30秒、正式运行60秒，并保留10秒收尾缓冲；网页报告和统计只包含正式60秒。每档按`AB/BA/AB/BA/AB`执行，A、B各五轮并比较中位数。
 
 运行全部缓存档位：
 
@@ -118,11 +118,11 @@ perf/scripts/run-cache-ab.sh ALL
 perf/scripts/run-cache-ab.sh C1
 ```
 
-结果同时给出各档P50/P95/P99降低比例、MySQL回源降低比例，以及满足目标RPS、P95不超过200ms、P99不超过500ms、零超时、零5xx和零业务失败时的最高通过RPS。容量提升按`B组最高通过RPS/A组最高通过RPS-1`计算；如果B组通过最高测试档，只能表述为“至少达到1000 RPS”。
+结果同时给出各档P50/P95/P99降低比例、Caffeine/Redis/MySQL QPS、MySQL回源降低比例，以及满足目标RPS、单秒峰值不超过目标的150%、P95不超过200ms、P99不超过500ms、零超时、零5xx和零业务失败时的最高通过RPS。容量提升按`B组最高通过RPS/A组最高通过RPS-1`计算；如果B组通过最高测试档，只能表述为“至少达到1000 RPS”。
 
 ## 全套执行
 
-全套包含约75分钟的缓存A/B分档（另加容器重启时间），以及所有秒杀档位：
+全套包含约84分钟的缓存A/B分档（另加容器重启和报告生成时间），以及所有秒杀档位：
 
 ```bash
 export HMDP_PERF_CONFIRM_FORMAL_RUN=yes
@@ -149,7 +149,9 @@ export HMDP_PERF_CACHE_WARMUP_SECONDS=30
 每个缓存轮次目录还包含：
 
 - `metrics-before.prom`、`metrics-after.prom`：正式阶段前后的原始指标快照。
-- `cache-metrics.json`：Caffeine命中、Redis命中和MySQL回源增量。
+- `cache-metrics.json`：Caffeine命中、Redis命中、MySQL回源增量及对应QPS。
+- `results.jtl`：包含预热、正式和收尾缓冲的原始请求。
+- `measurement.jtl`：只包含正式60秒，是网页报告和汇总的输入。
 - `latency-by-second.csv`：逐秒请求数与延迟。
 - `metadata.json`：档位、A/B模式、轮次、RPS和时长。
 

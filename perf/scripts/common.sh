@@ -78,6 +78,29 @@ fetch_metrics() {
     -o "${output}"
 }
 
+wait_for_jtl_sample() {
+  local jtl=$1
+  local process_id=$2
+  local attempts=${3:-90}
+  local i=1
+  while (( i <= attempts )); do
+    if [[ -f "${jtl}" ]] && awk -F, 'NR == 2 {valid = ($1 ~ /^[0-9]+$/)} END {exit valid ? 0 : 1}' "${jtl}"; then
+      return 0
+    fi
+    if ! kill -0 "${process_id}" 2>/dev/null; then
+      return 1
+    fi
+    sleep 1
+    i=$((i + 1))
+  done
+  return 1
+}
+
+wait_until_epoch_ms() {
+  local target_ms=$1
+  python3 -c 'import sys,time; time.sleep(max(0.0, (int(sys.argv[1]) - time.time_ns() // 1000000) / 1000.0))' "${target_ms}"
+}
+
 ensure_dir() {
   mkdir -p "$1"
 }

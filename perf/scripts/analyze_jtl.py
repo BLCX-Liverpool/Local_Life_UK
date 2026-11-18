@@ -26,14 +26,51 @@ def main():
     parser.add_argument("--target-rps", type=float, required=True)
     parser.add_argument("--planned-duration-seconds", type=float)
     parser.add_argument("--buckets-output", type=Path)
+    parser.add_argument("--discard-first-seconds", type=float, default=0.0)
+    parser.add_argument("--measurement-duration-seconds", type=float)
+    parser.add_argument("--filtered-jtl-output", type=Path)
     parser.add_argument("--mode", choices=("seckill", "cache"), default="seckill")
     args = parser.parse_args()
+    if args.discard_first_seconds < 0:
+        raise SystemExit("discard-first-seconds must not be negative")
+    if (
+        args.measurement_duration_seconds is not None
+        and args.measurement_duration_seconds <= 0
+    ):
+        raise SystemExit("measurement-duration-seconds must be positive")
 
-    rows = []
+    raw_rows = []
     with args.jtl.open(newline="", encoding="utf-8") as stream:
-        rows.extend(csv.DictReader(stream))
-    if not rows:
+        reader = csv.DictReader(stream)
+        fieldnames = reader.fieldnames
+        raw_rows.extend(reader)
+    if not raw_rows:
         raise SystemExit("JTL file contains no samples")
+
+    raw_timestamps = [int(row.get("timeStamp") or 0) for row in raw_rows]
+    measurement_origin_ms = min(raw_timestamps) + int(args.discard_first_seconds * 1000)
+    measurement_end_ms = None
+    if args.measurement_duration_seconds is not None:
+        measurement_end_ms = measurement_origin_ms + int(
+            args.measurement_duration_seconds * 1000
+        )
+    rows = [
+        row
+        for row in raw_rows
+        if int(row.get("timeStamp") or 0) >= measurement_origin_ms
+        and (
+            measurement_end_ms is None
+            or int(row.get("timeStamp") or 0) < measurement_end_ms
+        )
+    ]
+    if not rows:
+        raise SystemExit("JTL measurement window contains no samples")
+    if args.filtered_jtl_output:
+        args.filtered_jtl_output.parent.mkdir(parents=True, exist_ok=True)
+        with args.filtered_jtl_output.open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.DictWriter(stream, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
 
     elapsed = [float(row.get("elapsed") or 0) for row in rows]
     timestamps = [int(row.get("timeStamp") or 0) for row in rows]
@@ -100,8 +137,20 @@ def main():
         completion_window_seconds = completion_span_seconds
     observed_active_window_completed_rps = len(rows) / completion_span_seconds
     completed_rps = len(rows) / completion_window_seconds
+    ordered_timestamps = sorted(timestamps)
+    peak_one_second_arrivals = 0
+    left = 0
+    for right, timestamp in enumerate(ordered_timestamps):
+        while timestamp - ordered_timestamps[left] >= 1000:
+            left += 1
+        peak_one_second_arrivals = max(peak_one_second_arrivals, right - left + 1)
+    peak_to_target_ratio = peak_one_second_arrivals / args.target_rps
     summary = {
+        "raw_samples": len(raw_rows),
         "samples": len(rows),
+        "discarded_samples": len(raw_rows) - len(rows),
+        "discard_first_seconds": args.discard_first_seconds,
+        "measurement_duration_seconds": args.measurement_duration_seconds,
         "duration_seconds": round(completion_span_seconds, 3),
         "arrival_span_seconds": round(arrival_span_seconds, 3),
         "planned_duration_seconds": (
@@ -117,6 +166,9 @@ def main():
         "completed_rps": round(completed_rps, 3),
         "observed_active_window_completed_rps": round(observed_active_window_completed_rps, 3),
         "target_achievement_ratio": round(achieved_rps / args.target_rps, 4),
+        "peak_one_second_arrivals": peak_one_second_arrivals,
+        "peak_to_target_ratio": round(peak_to_target_ratio, 4),
+        "burst_profile_passed": peak_to_target_ratio <= 1.5,
         "p50_ms": percentile(elapsed, 0.50),
         "p95_ms": percentile(elapsed, 0.95),
         "p99_ms": percentile(elapsed, 0.99),
@@ -136,10 +188,9 @@ def main():
             "rate_limited": rate_limited,
         })
     if args.buckets_output:
-        first_timestamp = min(timestamps)
         buckets = {}
         for timestamp, latency in zip(timestamps, elapsed):
-            second = (timestamp - first_timestamp) // 1000
+            second = (timestamp - measurement_origin_ms) // 1000
             buckets.setdefault(second, []).append(latency)
         args.buckets_output.parent.mkdir(parents=True, exist_ok=True)
         with args.buckets_output.open("w", newline="", encoding="utf-8") as stream:

@@ -29,15 +29,22 @@ def aggregate_mode(entries):
         metric["mysql_loads"] / max(1, sample)
         for metric, sample in zip(metrics, samples)
     ]
-    load_profile_passed = all(
+    rate_profile_passed = all(
         0.95 <= summary["target_achievement_ratio"] <= 1.05
         for summary in summaries
     )
+    burst_profile_passed = all(
+        summary.get("peak_to_target_ratio", float("inf")) <= 1.5
+        for summary in summaries
+    )
+    load_profile_passed = rate_profile_passed and burst_profile_passed
     sla_failures = []
     if any(summary["target_achievement_ratio"] < 0.95 for summary in summaries):
         sla_failures.append("at least one round achieved less than 95% of target RPS")
     if any(summary["target_achievement_ratio"] > 1.05 for summary in summaries):
         sla_failures.append("at least one round exceeded 105% of target RPS")
+    if any(summary.get("peak_to_target_ratio", float("inf")) > 1.5 for summary in summaries):
+        sla_failures.append("at least one round exceeded 150% of target RPS in a one-second window")
     if any(summary["p95_ms"] > 200 for summary in summaries):
         sla_failures.append("at least one round exceeded P95 200ms")
     if any(summary["p99_ms"] > 500 for summary in summaries):
@@ -51,10 +58,18 @@ def aggregate_mode(entries):
 
     return {
         "rounds": len(entries),
+        "rate_profile_passed": rate_profile_passed,
+        "burst_profile_passed": burst_profile_passed,
         "load_profile_passed": load_profile_passed,
         "sla_passed": not sla_failures,
         "sla_failures": sla_failures,
         "median_rps": round(median(summaries, "achieved_rps"), 3),
+        "max_peak_one_second_arrivals": max(
+            summary.get("peak_one_second_arrivals", 0) for summary in summaries
+        ),
+        "max_peak_to_target_ratio": max(
+            summary.get("peak_to_target_ratio", 0.0) for summary in summaries
+        ),
         "median_p50_ms": median(summaries, "p50_ms"),
         "median_p95_ms": median(summaries, "p95_ms"),
         "median_p99_ms": median(summaries, "p99_ms"),
@@ -64,10 +79,13 @@ def aggregate_mode(entries):
             summary["other_business_failures"] for summary in summaries
         ),
         "median_caffeine_hits": median(metrics, "caffeine_hits"),
+        "median_caffeine_hit_qps": median(metrics, "caffeine_hit_qps"),
         "median_caffeine_hit_ratio": round(median(metrics, "caffeine_hit_ratio"), 6),
         "median_redis_hits": median(metrics, "redis_hits"),
+        "median_redis_hit_qps": median(metrics, "redis_hit_qps"),
         "median_redis_hit_ratio": round(median(metrics, "redis_hit_ratio"), 6),
         "median_mysql_loads": median(metrics, "mysql_loads"),
+        "median_mysql_qps": median(metrics, "mysql_qps"),
         "median_mysql_load_ratio": round(statistics.median(mysql_load_ratios), 6),
     }
 
@@ -123,6 +141,8 @@ def main():
                 )
                 continue
             modes[mode] = aggregate_mode(entries)
+            if not modes[mode]["burst_profile_passed"]:
+                failures.append(f"{tier}-{mode} has an invalid burst load profile")
             if modes[mode]["sla_passed"]:
                 passing_capacity[mode].append(target_rps)
 

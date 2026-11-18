@@ -31,6 +31,11 @@ def main():
             "achieved throughput is above 105%; load profile is invalid",
             failures,
         )
+    check(
+        http.get("peak_to_target_ratio", float("inf")) <= 1.5,
+        "one-second arrival peak exceeds 150% of target RPS",
+        failures,
+    )
     check(http["timeouts"] == 0, "timeouts must be zero", failures)
     check(http["unexpected_5xx"] == 0, "unexpected HTTP 5xx must be zero", failures)
     check(http["p95_ms"] <= 200, "P95 exceeds 200ms", failures)
