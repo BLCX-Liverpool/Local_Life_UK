@@ -34,7 +34,8 @@ wait_for_api() {
   local attempts=${1:-90}
   local i=1
   while (( i <= attempts )); do
-    if curl -fsS "${PERF_API_BASE}/actuator/health" | grep -q '"status":"UP"'; then
+    if curl -fsS "${PERF_API_BASE}/actuator/health" 2>/dev/null \
+      | grep -q '"status":"UP"'; then
       return 0
     fi
     sleep 2

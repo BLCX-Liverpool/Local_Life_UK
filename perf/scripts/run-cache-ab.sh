@@ -45,7 +45,7 @@ for mode in "${sequence[@]}"; do
     -Jport="${PERF_API_PORT}" \
     -Jduration_seconds="${WARMUP}" \
     -Jthreads=100 \
-    -Jthroughput_per_minute=12000
+    -Jtarget_rps=200
 
   "${SCRIPT_DIR}/run-jmeter.sh" \
     "${PERF_ROOT}/perf/jmeter/cache-read.jmx" \
@@ -54,7 +54,7 @@ for mode in "${sequence[@]}"; do
     -Jport="${PERF_API_PORT}" \
     -Jduration_seconds="${DURATION}" \
     -Jthreads=200 \
-    -Jthroughput_per_minute="$((RPS * 60))"
+    -Jtarget_rps="${RPS}"
 
   python3 "${SCRIPT_DIR}/analyze_jtl.py" \
     "${phase}/results.jtl" \

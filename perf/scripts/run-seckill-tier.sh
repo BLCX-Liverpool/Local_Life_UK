@@ -38,7 +38,8 @@ fi
 
 timestamp=$(date '+%Y%m%d-%H%M%S')
 result_dir=${PERF_ROOT}/perf/results/${timestamp}-${SCENARIO}
-throughput_per_minute=$((RPS * 60))
+requests=$((USERS * COPIES))
+schedule_seconds=$(((requests + RPS - 1) / RPS))
 threads=${USERS}
 if (( threads > 200 )); then
   threads=200
@@ -52,7 +53,8 @@ fi
   -Jvoucher_id="${PERF_VOUCHER_ID}" \
   -Jtokens_csv="${tokens}" \
   -Jthreads="${threads}" \
-  -Jthroughput_per_minute="${throughput_per_minute}"
+  -Jtarget_rps="${RPS}" \
+  -Jschedule_seconds="${schedule_seconds}"
 
 python3 "${SCRIPT_DIR}/analyze_jtl.py" \
   "${result_dir}/results.jtl" \

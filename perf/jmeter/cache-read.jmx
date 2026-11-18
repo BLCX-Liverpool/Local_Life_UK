@@ -27,10 +27,20 @@
         <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
       </ThreadGroup>
       <hashTree>
-        <ConstantThroughputTimer guiclass="TestBeanGUI" testclass="ConstantThroughputTimer" testname="Target RPS" enabled="true">
-          <stringProp name="throughput">${__P(throughput_per_minute,30000)}</stringProp>
-          <intProp name="calcMode">3</intProp>
-        </ConstantThroughputTimer>
+        <PreciseThroughputTimer guiclass="TestBeanGUI" testclass="PreciseThroughputTimer" testname="Precise target RPS" enabled="true">
+          <stringProp name="throughput">${__P(target_rps,500)}</stringProp>
+          <intProp name="throughputPeriod">1</intProp>
+          <stringProp name="duration">${__P(duration_seconds,180)}</stringProp>
+          <intProp name="exactLimit">1000000</intProp>
+          <doubleProp>
+            <name>allowedThroughputSurplus</name>
+            <value>0.0</value>
+            <savedValue>0.0</savedValue>
+          </doubleProp>
+          <longProp name="randomSeed">20261119</longProp>
+          <intProp name="batchSize">1</intProp>
+          <intProp name="batchThreadDelay">0</intProp>
+        </PreciseThroughputTimer>
         <hashTree/>
         <JSR223PreProcessor guiclass="TestBeanGUI" testclass="JSR223PreProcessor" testname="80/20 shop distribution" enabled="true">
           <stringProp name="cacheKey">true</stringProp>
