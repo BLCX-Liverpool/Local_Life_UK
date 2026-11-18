@@ -25,6 +25,12 @@ def main():
 
     boundary = args.scenario in {"L4B", "LIMIT"}
     check(http["target_achievement_ratio"] >= 0.95, "achieved throughput is below 95%", failures)
+    if args.scenario != "SMOKE":
+        check(
+            http["target_achievement_ratio"] <= 1.05,
+            "achieved throughput is above 105%; load profile is invalid",
+            failures,
+        )
     check(http["timeouts"] == 0, "timeouts must be zero", failures)
     check(http["unexpected_5xx"] == 0, "unexpected HTTP 5xx must be zero", failures)
     check(http["p95_ms"] <= 200, "P95 exceeds 200ms", failures)

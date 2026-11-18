@@ -36,7 +36,8 @@ def main():
     elapsed = [float(row.get("elapsed") or 0) for row in rows]
     timestamps = [int(row.get("timeStamp") or 0) for row in rows]
     ended = [stamp + int(float(row.get("elapsed") or 0)) for stamp, row in zip(timestamps, rows)]
-    duration_seconds = max(0.001, (max(ended) - min(timestamps)) / 1000.0)
+    completion_span_seconds = max(0.001, (max(ended) - min(timestamps)) / 1000.0)
+    arrival_span_seconds = max(0.001, (max(timestamps) - min(timestamps)) / 1000.0)
     codes = Counter((row.get("responseCode") or "unknown") for row in rows)
 
     timeouts = 0
@@ -76,12 +77,19 @@ def main():
             other_business_failures += 1
 
     duplicate_requests = sum(max(0, count - 1) for count in successful_rows_by_user.values())
-    achieved_rps = len(rows) / duration_seconds
+    achieved_rps = (
+        (len(rows) - 1) / arrival_span_seconds
+        if len(rows) > 1
+        else len(rows) / completion_span_seconds
+    )
+    completed_rps = len(rows) / completion_span_seconds
     summary = {
         "samples": len(rows),
-        "duration_seconds": round(duration_seconds, 3),
+        "duration_seconds": round(completion_span_seconds, 3),
+        "arrival_span_seconds": round(arrival_span_seconds, 3),
         "target_rps": args.target_rps,
         "achieved_rps": round(achieved_rps, 3),
+        "completed_rps": round(completed_rps, 3),
         "target_achievement_ratio": round(achieved_rps / args.target_rps, 4),
         "p50_ms": percentile(elapsed, 0.50),
         "p95_ms": percentile(elapsed, 0.95),

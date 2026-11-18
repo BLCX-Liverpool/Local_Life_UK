@@ -39,7 +39,7 @@
       <hashTree>
         <ConstantThroughputTimer guiclass="TestBeanGUI" testclass="ConstantThroughputTimer" testname="Target RPS" enabled="true">
           <stringProp name="throughput">${__P(throughput_per_minute,6000)}</stringProp>
-          <intProp name="calcMode">1</intProp>
+          <intProp name="calcMode">3</intProp>
         </ConstantThroughputTimer>
         <hashTree/>
         <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Authorization" enabled="true">

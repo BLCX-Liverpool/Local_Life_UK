@@ -65,7 +65,7 @@ metric_value() {
   value=$(curl -fsS \
     -H 'Authorization: Bearer hmdp_perf_metrics' \
     "${PERF_API_BASE}/actuator/prometheus" \
-    | awk -v name="${metric}" '$1 == name {print $2; exit}')
+    | awk -v name="${metric}" '$1 == name && !found {print $2; found = 1}')
   printf '%s\n' "${value:-0}"
 }
 
