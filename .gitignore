@@ -43,3 +43,10 @@ backups/
 
 # Local wiki notes
 /wiki/
+
+# Local performance-test artifacts and downloaded tools
+/perf/generated/
+/perf/results/
+/perf/.tools/
+__pycache__/
+*.pyc

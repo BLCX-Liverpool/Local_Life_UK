@@ -1,0 +1,165 @@
+# 隔离压测方案
+
+本目录实现经确认的缓存 A/B、秒杀阶梯压测和业务对账方案。测试不修改业务逻辑，固定使用 Compose 项目 `hmdp-perf`、数据库 `hmdp_optimization_test` 和该项目自己的数据卷。
+
+## 安全边界
+
+- 不得把脚本指向开发库、演示库或生产库。
+- `prepare-fixture.sh` 同时检查 Compose 项目名和数据库名，并要求显式设置 `HMDP_PERF_ALLOW_RESET=yes`。
+- 正式压测还要求 `HMDP_PERF_CONFIRM_FORMAL_RUN=yes`。
+- `stop-stack.sh` 默认保留数据卷，不执行 `down -v`。
+- 压测专用用户 ID 为 `900001..910000`，券 ID 默认为 `990001`。
+- JMeter 应在独立压测机运行；本机 `SMOKE` 只用于验证脚本和链路。
+
+## 目录
+
+```text
+perf/
+├── docker-compose.perf.yml       隔离 API 服务覆盖配置
+├── jmeter/
+│   ├── cache-read.jmx            80/20 店铺详情读取
+│   └── seckill.jmx               不同登录用户的秒杀请求
+├── scripts/                      启动、夹具、执行、分析和验收
+├── sql/                          夹具与最终状态查询
+├── generated/                    运行时 token CSV，Git 忽略
+├── results/                      JTL、HTML 仪表板和 JSON 结果，Git 忽略
+└── report-template.md            正式报告模板
+```
+
+## 环境要求
+
+- Docker 和 Docker Compose。
+- Java 8 或更高版本。
+- Python 3。
+- curl。
+- Apache JMeter 5.6.3。
+
+JMeter 未安装时：
+
+```bash
+perf/scripts/install-jmeter.sh
+```
+
+安装脚本从 Apache Archive 下载二进制包并校验官方 SHA-512 文件，结果放在 `perf/.tools/`。
+
+## 正式测试服务器基线
+
+10000 用户档代表 10000 个不同登录用户各提交一次请求；L4A/L4B 分别把这 10000 个请求控制在 800/1000 RPS。用户数不是同时保持的 TCP 连接数，也不是 RPS。
+
+正式测试应把发压机与被测服务分开，并位于同一地域/可用区：
+
+| 角色 | 建议配置 | 说明 |
+| --- | --- | --- |
+| Java API | 8 vCPU / 16 GiB，JVM 6–8 GiB | 作为 1000 RPS 档位的起始基线 |
+| MySQL | 4 vCPU / 8 GiB，SSD/NVMe | 独立实例，连接池默认 30 |
+| Redis | 2 vCPU / 4 GiB | 独立实例，避免与 JVM 争抢内存 |
+| RabbitMQ | 2 vCPU / 4 GiB | 独立实例并监控 ready/unacked |
+| JMeter 发压机 | 8 vCPU / 8 GiB | 不与 API 共机，网络带宽至少 1 Gbps |
+
+如果只能使用一台服务器承载 API、MySQL、Redis 和 RabbitMQ，建议至少 16 vCPU / 32 GiB / NVMe；该结果只能说明整机组合容量，不能直接归因到 Java 服务。最终报告必须记录真实实例规格、JVM 参数和网络位置。
+
+## 启动隔离环境
+
+```bash
+perf/scripts/start-stack.sh
+```
+
+默认入口为 `http://127.0.0.1:18081`。隔离环境启用 MySQL、Redis、Memcached、RabbitMQ 和 Java API；Kafka、RocketMQ、Canal 和行为分析不参与本轮测试。
+
+## 低档冒烟
+
+冒烟使用 20 个用户、20 份库存和 10 RPS，不属于正式容量结论：
+
+```bash
+perf/scripts/run-seckill-tier.sh SMOKE
+```
+
+## 正式秒杀档位
+
+| 场景 | 不同用户 | HTTP 请求 | 目标 RPS | 库存 | 目的 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| L1 | 1000 | 1000 | 100 | 1000 | 基础容量 |
+| L2 | 2000 | 2000 | 200 | 2000 | 中等压力 |
+| L3 | 5000 | 5000 | 500 | 5000 | 主要容量目标 |
+| L4A | 10000 | 10000 | 800 | 10000 | 高压稳定性 |
+| L4B | 10000 | 10000 | 1000 | 10000 | 全局限流边界 |
+| DUPLICATE | 1000 | 2000 | 200 | 1000 | 每用户重复两次 |
+| STOCK | 5000 | 5000 | 500 | 3000 | 库存不足与零超卖 |
+| LIMIT | 2000 | 2000 | 1500 | 2000 | 受控 429 |
+
+每次正式运行都重置隔离测试夹具：
+
+```bash
+export HMDP_PERF_CONFIRM_FORMAL_RUN=yes
+perf/scripts/run-seckill-tier.sh L1
+```
+
+状态查询不混入主发压流量。JMeter 完成后，脚本最多等待 5 分钟，直到 Redis Stream、Outbox 和 RabbitMQ 排空，再执行库存与订单对账。
+
+## 缓存 A/B/C
+
+三个模式分别是：
+
+- A：业务缓存关闭，直接回源 MySQL。
+- B：Caffeine + Redis，Memcached 关闭。
+- C：Caffeine + Memcached + Redis，当前拓扑。
+
+默认每阶段预热 30 秒、以 500 RPS 正式运行 180 秒；顺序为 `ABC/CBA/ABC/CBA/ABC`，每个模式五轮，最终比较中位数：
+
+```bash
+export HMDP_PERF_CONFIRM_FORMAL_RUN=yes
+perf/scripts/run-cache-ab.sh
+```
+
+只有 B 模式功能正确、零超时/5xx，且 P95 相比 C 回退不超过 10%，才会输出“可以进入 Memcached 移除评审”。测试不会自动修改 Compose 或删除 Memcached。
+
+## 全套执行
+
+全套包含约 50 分钟的缓存 A/B/C，以及所有秒杀档位。应在独立压测机和正式压测服务器上执行：
+
+```bash
+export HMDP_PERF_CONFIRM_FORMAL_RUN=yes
+perf/scripts/run-formal-suite.sh
+```
+
+可通过以下变量调整缓存测试，但正式报告必须记录实际值：
+
+```bash
+export HMDP_PERF_CACHE_RPS=500
+export HMDP_PERF_CACHE_DURATION_SECONDS=180
+export HMDP_PERF_CACHE_WARMUP_SECONDS=30
+```
+
+## 结果
+
+每个秒杀结果目录包含：
+
+- `results.jtl`：原始请求结果。
+- `dashboard/`：JMeter HTML 报告。
+- `http-summary.json`：吞吐、P50/P95/P99、超时、429和业务结果。
+- `final-state.json`：库存、订单、预约、Stream、Outbox、RabbitMQ和死信。
+- `verification.json`：统一验收结论与失败原因。
+
+主验收条件：
+
+```text
+初始库存 = 数据库剩余库存 + 成功订单数
+数据库剩余库存 - Redis剩余库存 - 未完成预约数 = 0
+未完成预约数 = 0
+Stream lag/pending/review = 0
+Outbox pending/inflight/review = 0
+RabbitMQ ready/unacked = 0
+死信和异常消息 = 0
+一人多单违规 = 0
+```
+
+正常容量档要求目标吞吐达到 95%、P95 不超过 200ms、P99 不超过 500ms、零超时和零非预期 5xx。L4B 与 LIMIT 允许受控 429，但仍需通过全部业务对账。
+
+## 停止
+
+```bash
+perf/scripts/stop-stack.sh
+```
+
+命令保留隔离数据卷，便于复核。需要删除隔离卷时应人工核对 Compose 项目确实为 `hmdp-perf` 后再单独执行，脚本不会自动删除。
+

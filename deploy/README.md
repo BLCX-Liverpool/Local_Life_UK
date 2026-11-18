@@ -4,11 +4,11 @@
 
 ## 1. 这套部署运行什么
 
-运行 Nginx 桌面网页、Java、MySQL、Redis、Memcache。后端使用当前源码编译的可执行 JAR，前端使用当前 `frontend` 静态页面，所有网页请求仍走同域 `/api`。
+运行 Nginx 桌面网页、Java、MySQL、Redis。后端使用当前源码编译的可执行 JAR，前端使用当前 `frontend` 静态页面，所有网页请求仍走同域 `/api`。缓存固定为 Caffeine + Redis，2GB 演示环境不启动 Memcached。
 
 登录、店铺/搜索、签到、社区、普通券与订单、缓存采样可以体验。秒杀需要管理员准备并发布活动，走 Redis Stream 和本地履约。持久 Outbox/Inbox 仍用于本地投影。免费券的“已领取”状态不表示真实收款，模拟支付默认关闭。
 
-这台 2GB 机器先关闭 Kafka、RocketMQ、Canal。体验页会显示对应功能未启用；不能据此宣称已验证真实消息中间件。五层缓存实现保留，具体采样命中哪一层取决于当时状态。数据库直改不再由 CDC 自动传播，演示更新请使用业务接口。
+这台 2GB 机器关闭 RabbitMQ、Kafka、RocketMQ、Canal。MQ 关闭时，现有 Redis Stream 消费者会直接完成秒杀订单持久化，Outbox 事件由本地消费者处理；不能据此宣称已验证真实消息中间件。数据库直改不再由 CDC 自动传播，演示更新请使用业务接口。
 
 限额用于约束容器和 JVM，并不保证任何负载都能运行在 2GB；首次启动和实际体验后需检查内存与 OOM。当前只做小范围试用，暂无真实短信、支付或多机容灾。
 
@@ -72,7 +72,7 @@ curl -i 'http://127.0.0.1:8080/api/shop-type/list'
 
 `image-init` 的 Exited(0) 表示初始图片复制完成，是正常状态。复制不覆盖已有同路径图片，后续上传数据保存在 uploads 卷。web 的健康检查经过 `/api/actuator/health`，等待 Java 启动后才能 healthy。
 
-网页端口为 `0.0.0.0:8080`；Java 8081 仅绑定服务器本机；MySQL、Redis、Memcache不发布宿主端口。公网访问通过 Nginx，管理运维 `/api/ops/` 和 Prometheus 路由不在该入口公开。Nginx 重写 X-Forwarded-For，Java按 native策略恢复访客地址，避免所有人被简单当成同一个代理 IP限流。
+网页端口为 `0.0.0.0:8080`；Java 8081 仅绑定服务器本机；MySQL和Redis不发布宿主端口。公网访问通过 Nginx，管理运维 `/api/ops/` 和 Prometheus 路由不在该入口公开。Nginx 重写 X-Forwarded-For，Java按 native策略恢复访客地址，避免所有人被简单当成同一个代理 IP限流。
 
 ## 5. 阿里云安全组开放网页端口
 
@@ -85,7 +85,7 @@ curl -i 'http://127.0.0.1:8080/api/shop-type/list'
 | 授权对象 | 小范围试用填体验者公网 IP/CIDR；需要公开网页时才使用 0.0.0.0/0 |
 | 描述 | 黑马点评网页体验 |
 
-不需要开放 3306、6379、11211、8081或 MQ/Kafka端口。安全组放行与服务器防火墙是两层检查；如果 firewalld已启用，需在实际生效的 zone中放行网页端口，不直接关闭整个防火墙。
+不需要开放 3306、6379、8081或 MQ/Kafka端口。安全组放行与服务器防火墙是两层检查；如果 firewalld已启用，需在实际生效的 zone中放行网页端口，不直接关闭整个防火墙。
 
 ```bash
 # 只读判断当前防火墙状态和生效 zone
@@ -158,7 +158,9 @@ df -h /
 docker compose --env-file .env -f compose.yml logs --tail=100 mysql java web
 ```
 
-Java堆上限 256MB，容器上限512MB；MySQL上限512MB并缩小缓冲区，Redis上限192MB且禁用自动淘汰业务 Key，Memcache上限64MB，Nginx上限64MB。这是初始体验预算，应用的原生内存、线程、数据库初始化峰值和宿主进程都要算在内。
+Java堆上限256MB、容器上限512MB；MySQL上限512MB并缩小缓冲区；Redis上限192MB且禁用自动淘汰业务 Key；Nginx上限64MB。一次性图片初始化容器上限64MB，完成后自动退出。常驻容器上限合计1280MB，为系统、Docker和文件缓存保留约700MB；应用的原生内存、线程和数据库初始化峰值仍要计算在内。
+
+建议为2GB主机配置2GB Swap只作为防止瞬时OOM的安全垫。演示期间若持续使用Swap，说明内存已经不足，不能把Swap当成可用性能容量。
 
 如果容器重启，检查是否 OOMKilled，不先用反复重启掩盖。Redis达到 maxmemory后会拒绝新增写入，不能为腾空间使用 FLUSHALL或随机删秒杀/签到数据。进一步并发演示、全部中间件或更大数据量需要重新评估资源，本文件不保证2GB可以承载所有亮点与压测。
 

@@ -1,0 +1,52 @@
+services:
+  api:
+    image: maven:3.9-eclipse-temurin-8
+    working_dir: /workspace
+    command:
+      - mvn
+      - -B
+      - -DskipTests
+      - -Dcheckstyle.skip=true
+      - spring-boot:run
+    environment:
+      JAVA_TOOL_OPTIONS: ${HMDP_PERF_JAVA_TOOL_OPTIONS:--Xms512m -Xmx2g}
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/hmdp_optimization_test?useSSL=false&serverTimezone=UTC&characterEncoding=utf8
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: isolation_test_only
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: ${HMDP_PERF_DB_POOL_SIZE:-30}
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: '6379'
+      SPRING_REDIS_PASSWORD: ''
+      HMDP_CACHE_ENABLED: ${HMDP_PERF_CACHE_ENABLED:-true}
+      HMDP_MEMCACHE_ENABLED: ${HMDP_PERF_MEMCACHE_ENABLED:-true}
+      HMDP_MEMCACHE_HOST: memcached
+      HMDP_MEMCACHE_TIMEOUT_MS: '100'
+      HMDP_CDC_ENABLED: 'false'
+      HMDP_MQ_ENABLED: 'true'
+      HMDP_MQ_PROVIDER: rabbitmq
+      HMDP_MQ_SECKILL_ENABLED: 'true'
+      HMDP_RABBITMQ_HOST: rabbitmq
+      HMDP_RABBITMQ_PORT: '5672'
+      HMDP_RABBITMQ_USER: hmdp
+      HMDP_RABBITMQ_PASSWORD: hmdp_local_only
+      HMDP_RABBITMQ_VHOST: /hmdp
+      HMDP_ANALYTICS_ENABLED: 'false'
+      HMDP_EXPERIENCE_ENABLED: 'false'
+      HMDP_MONITOR_TOKEN: hmdp_perf_metrics
+      CITYLENS_CATALOG_ADMIN_IDS: '900001'
+      CITYLENS_RELIABILITY_SCHEDULING_ENABLED: 'true'
+      LOGGING_LEVEL_COM_HMDP: info
+    ports:
+      - 127.0.0.1:${HMDP_PERF_API_PORT:-18081}:8081
+    volumes:
+      - ..:/workspace
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      memcached:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+

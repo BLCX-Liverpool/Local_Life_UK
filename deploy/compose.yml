@@ -1,3 +1,5 @@
+# Single-host demonstration profile for 2 vCPU / 2 GiB.
+# It is intentionally not the performance-test or production profile.
 name: hmdp-cloud
 x-logging: &logging
   driver: json-file
@@ -19,6 +21,10 @@ services:
       - --table-open-cache=128
       - --tmp-table-size=16M
       - --max-heap-table-size=16M
+      - --innodb-log-buffer-size=8M
+      - --thread-cache-size=4
+      - --sort-buffer-size=256K
+      - --join-buffer-size=256K
     environment:
       MYSQL_ROOT_PASSWORD: ${HMDP_MYSQL_ROOT_PASSWORD:?Run init-env.sh first}
       MYSQL_DATABASE: hmdp
@@ -39,7 +45,7 @@ services:
     logging: *logging
     environment:
       REDIS_PASSWORD: ${HMDP_REDIS_PASSWORD:?Run init-env.sh first}
-    command: [sh, -c, 'exec redis-server --appendonly yes --appendfsync always --maxmemory 128mb --maxmemory-policy noeviction --requirepass "$$REDIS_PASSWORD"']
+    command: [sh, -c, 'exec redis-server --appendonly yes --appendfsync everysec --maxmemory 128mb --maxmemory-policy noeviction --requirepass "$$REDIS_PASSWORD"']
     volumes:
       - redis-data:/data
     healthcheck:
@@ -47,12 +53,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-  memcached:
-    image: memcached:1.6-alpine
-    restart: unless-stopped
-    mem_limit: 64m
-    logging: *logging
-    command: [memcached, -m, '32', -I, 2m]
   image-init:
     image: nginx:alpine
     mem_limit: 64m
@@ -74,16 +74,20 @@ services:
     environment:
       JAVA_TOOL_OPTIONS: '-Xms128m -Xmx256m -XX:MaxMetaspaceSize=128m -XX:MaxDirectMemorySize=64m -XX:ReservedCodeCacheSize=64m'
       SERVER_FORWARD_HEADERS_STRATEGY: native
+      SERVER_TOMCAT_THREADS_MAX: '40'
+      SERVER_TOMCAT_THREADS_MIN_SPARE: '2'
+      SERVER_TOMCAT_ACCEPT_COUNT: '20'
+      SPRING_JMX_ENABLED: 'false'
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/hmdp?useSSL=false&serverTimezone=UTC&characterEncoding=utf8
       SPRING_DATASOURCE_USERNAME: hmdp_app
       SPRING_DATASOURCE_PASSWORD: ${HMDP_MYSQL_PASSWORD:?Run init-env.sh first}
-      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: '8'
-      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: '2'
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: '6'
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: '1'
       SPRING_REDIS_HOST: redis
       SPRING_REDIS_PORT: '6379'
       SPRING_REDIS_PASSWORD: ${HMDP_REDIS_PASSWORD:?Run init-env.sh first}
-      HMDP_MEMCACHE_ENABLED: 'true'
-      HMDP_MEMCACHE_HOST: memcached
+      HMDP_CACHE_ENABLED: 'true'
+      HMDP_MEMCACHE_ENABLED: 'false'
       HMDP_CDC_ENABLED: 'false'
       HMDP_MQ_ENABLED: 'false'
       HMDP_MQ_SECKILL_ENABLED: 'false'
@@ -93,6 +97,8 @@ services:
       HMDP_UPLOAD_DIR: /uploads
       CITYLENS_CATALOG_ADMIN_IDS: ${HMDP_ADMIN_IDS:-}
       CITYLENS_PAYMENT_MOCK_ENABLED: ${HMDP_PAYMENT_MOCK_ENABLED:-false}
+      CITYLENS_RELIABILITY_SCHEDULING_ENABLED: 'true'
+      LOGGING_LEVEL_COM_HMDP: info
     ports:
       - '127.0.0.1:8081:8081'
     volumes:
@@ -102,8 +108,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      memcached:
-        condition: service_started
       image-init:
         condition: service_completed_successfully
   web:
