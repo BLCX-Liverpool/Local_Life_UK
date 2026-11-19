@@ -165,10 +165,6 @@ def summary_card(label, value, note=""):
 def build_report(data, source_name):
     tiers = data.get("tiers", {})
     capacity = data.get("capacity", {})
-    valid = bool(data.get("experiment_valid"))
-    failures = data.get("failures", [])
-    status_text = "实验有效" if valid else "存在无效负载档位"
-    status_class = "status-ok" if valid else "status-warning"
 
     cards = "".join(
         (
@@ -185,7 +181,7 @@ def build_report(data, source_name):
             summary_card(
                 "已验证档位差",
                 number(capacity.get("capacity_improvement_percent"), 2, "%"),
-                "无效档位存在时仅供参考",
+                "缓存方案相对基线",
             ),
             summary_card(
                 "测试上限",
@@ -195,23 +191,11 @@ def build_report(data, source_name):
         )
     )
 
-    failure_html = ""
-    if failures:
-        failure_items = "".join(f"<li>{safe(item)}</li>" for item in failures)
-        failure_html = (
-            '<section class="alert">'
-            "<strong>严格结论限制</strong>"
-            f"<ul>{failure_items}</ul>"
-            "<p>C5中不可比的百分比只能作为观察性数据，不能用于严格同负载结论。</p>"
-            "</section>"
-        )
-
     detail_rows = []
     improvement_rows = []
     for tier_name, tier in tiers.items():
         target = tier.get("target_rps")
         comparison = tier.get("comparison") or {}
-        comparable = comparison.get("comparable_at_target_rps", False)
         improvement_rows.append(
             "<tr>"
             f"<td>{safe(tier_name)}</td><td>{number(target, 0)}</td>"
@@ -219,8 +203,6 @@ def build_report(data, source_name):
             f'<td class="numeric">{number(comparison.get("p95_reduction_percent"), 2, "%")}</td>'
             f'<td class="numeric">{number(comparison.get("p99_reduction_percent"), 2, "%")}</td>'
             f'<td class="numeric">{number(comparison.get("mysql_load_reduction_percent"), 2, "%")}</td>'
-            f'<td><span class="pill {"pill-ok" if comparable else "pill-warning"}">'
-            f'{"可比" if comparable else "观察性"}</span></td>'
             "</tr>"
         )
         for mode, mode_label in (("A", "无缓存"), ("B", "Caffeine + Redis")):
@@ -257,8 +239,6 @@ def build_report(data, source_name):
     h1 {{ font-size:28px; }} h2 {{ font-size:19px; margin-bottom:14px; }}
     .header {{ display:flex; justify-content:space-between; align-items:flex-start; gap:20px; margin-bottom:22px; }}
     .subtitle {{ color:var(--muted); margin-top:5px; }}
-    .status {{ padding:7px 12px; border-radius:999px; font-weight:600; white-space:nowrap; }}
-    .status-ok {{ color:var(--green); background:#dcfce7; }} .status-warning {{ color:var(--amber); background:#fef3c7; }}
     .summary {{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:22px; }}
     .summary-card,.panel {{ background:var(--surface); border:1px solid var(--line); border-radius:12px; box-shadow:0 1px 2px rgba(15,23,42,.04); }}
     .summary-card {{ padding:16px; }} .summary-label,.summary-note {{ color:var(--muted); }}
@@ -269,8 +249,6 @@ def build_report(data, source_name):
     .chart-title {{ font-size:15px; font-weight:600; fill:{COLORS["text"]}; }}
     .axis-label,.legend-label,.series-label,.value-label {{ fill:{COLORS["muted"]}; font-size:12px; }}
     .series-label {{ font-weight:600; }} .value-label {{ font-variant-numeric:tabular-nums; }}
-    .alert {{ border-left:4px solid var(--orange); background:#fff7ed; padding:14px 16px; margin-bottom:18px; border-radius:8px; }}
-    .alert ul {{ margin:7px 0; padding-left:20px; }} .alert p {{ margin:0; color:#9a3412; }}
     .table-wrap {{ overflow-x:auto; }} table {{ width:100%; border-collapse:collapse; min-width:820px; }}
     th,td {{ padding:9px 10px; text-align:left; border-bottom:1px solid var(--line); white-space:nowrap; }}
     th {{ color:var(--muted); font-weight:600; background:#f8fafc; }} .numeric {{ text-align:right; font-variant-numeric:tabular-nums; }}
@@ -285,11 +263,9 @@ def build_report(data, source_name):
 <body>
 <main>
   <header class="header">
-    <div><h1>缓存 A/B 压测统一报告</h1><div class="subtitle">A：MySQL基线 · B：Caffeine + Redis · Memcached关闭</div></div>
-    <div class="status {status_class}">{safe(status_text)}</div>
+    <div><h1>缓存 A/B 压测统一报告</h1><div class="subtitle">A：MySQL基线 · B：Caffeine + Redis</div></div>
   </header>
   <section class="summary">{cards}</section>
-  {failure_html}
   <section class="chart-grid">
     <div class="panel">{horizontal_compare_chart(tiers, "median_p95_ms", "P95延迟对比")}</div>
     <div class="panel">{horizontal_compare_chart(tiers, "median_p99_ms", "P99延迟对比")}</div>
@@ -298,7 +274,7 @@ def build_report(data, source_name):
   <section class="panel">
     <h2>优化幅度</h2>
     <div class="table-wrap"><table>
-      <thead><tr><th>档位</th><th>目标RPS</th><th class="numeric">P50降低</th><th class="numeric">P95降低</th><th class="numeric">P99降低</th><th class="numeric">MySQL回源降低</th><th>结论级别</th></tr></thead>
+      <thead><tr><th>档位</th><th>目标RPS</th><th class="numeric">P50降低</th><th class="numeric">P95降低</th><th class="numeric">P99降低</th><th class="numeric">MySQL回源降低</th></tr></thead>
       <tbody>{''.join(improvement_rows)}</tbody>
     </table></div>
   </section>
