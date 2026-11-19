@@ -124,8 +124,14 @@ for tier in "${tiers[@]}"; do
   done
 done
 
+aggregate_status=0
 python3 "${SCRIPT_DIR}/aggregate_cache_ab.py" \
   "${root_result}" \
-  "${root_result}/verification.json"
+  "${root_result}/verification.json" || aggregate_status=$?
+
+python3 "${SCRIPT_DIR}/generate_cache_html_report.py" \
+  "${root_result}/verification.json" \
+  "${root_result}/cache-ab-report.html"
 
 echo "Result: ${root_result}"
+exit "${aggregate_status}"

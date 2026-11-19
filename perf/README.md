@@ -155,7 +155,16 @@ export HMDP_PERF_CACHE_WARMUP_SECONDS=30
 - `latency-by-second.csv`：逐秒请求数与延迟。
 - `metadata.json`：档位、A/B模式、轮次、RPS和时长。
 
-缓存A/B根目录的`verification.json`汇总五轮中位数、各档延迟降低比例和容量提升。
+缓存A/B根目录的`verification.json`汇总五轮中位数、各档延迟降低比例和容量提升；`cache-ab-report.html`是可直接用浏览器打开的统一可视化报告。即使某个档位因负载突发被判为无效，脚本也会先生成HTML报告，再以非零状态结束。
+
+也可以对已有结果单独生成或重新生成统一报告：
+
+```bash
+latest="$(find perf/results -mindepth 1 -maxdepth 1 -type d -name '*-cache-ab-*' | sort | tail -n 1)"
+python3 perf/scripts/generate_cache_html_report.py \
+  "$latest/verification.json" \
+  "$latest/cache-ab-report.html"
+```
 
 主验收条件：
 
